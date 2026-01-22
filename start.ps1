@@ -61,7 +61,7 @@ $knowledgePath = $env:YORK_KNOWLEDGE_ROOT -replace '\\', '/' -replace '^([A-Z]):
 # 強制初始化同步：Cloud -> Local
 # 策略：雲端為單一真理來源 (SSOT)。每次啟動先拉取最新資料。
 if ($env:REMOTE_KNOWLEDGE_ROOT -and (Test-Path $env:REMOTE_KNOWLEDGE_ROOT)) {
-    Write-Warning "Performing startup sync (Cloud -> Local)..."
+    [Console]::Error.WriteLine("[Script] Performing startup sync (Cloud -> Local)...")
     
     # 使用 Robocopy /MIR 確保本地與雲端完全一致
     # /MIR: Mirror (複製所有內容，並刪除本地多餘檔案)
@@ -71,9 +71,16 @@ if ($env:REMOTE_KNOWLEDGE_ROOT -and (Test-Path $env:REMOTE_KNOWLEDGE_ROOT)) {
         "/MIR", "/R:1", "/W:1", "/MT:4", "/NFL", "/NDL", "/NJH", "/NJS"
     )
     
-    # 執行同步
-    Start-Process -FilePath "robocopy.exe" -ArgumentList $robocopyArgs -NoNewWindow -Wait
-    Write-Warning "Startup sync completed."
+    
+    # 執行同步 (Redirect all output to null)
+    # Using Call Operator & with *>$null is safer and simpler than Start-Process redirection
+    & robocopy.exe $robocopyArgs *>$null
+    if ($LASTEXITCODE -ge 8) {
+        # Robocopy exit code >= 8 means failure
+        [Console]::Error.WriteLine("[Script] Startup sync FAILED with code $LASTEXITCODE")
+        exit 1
+    }
+    [Console]::Error.WriteLine("[Script] Startup sync completed.")
 }
 
 # Start Watcher Service in Background
@@ -91,6 +98,12 @@ if (Test-Path $WatcherScript) {
 
 # Start Docker container with Auto-backup protection
 try {
+    # Ensure any previous instance is removed to avoid name conflicts
+    # Check existence to avoid error if container is already gone
+    if (docker ps -a -q -f "name=york-mcp") {
+        docker rm -f york-mcp | Out-Null
+    }
+
     # -i: Keep STDIN open (required for MCP)
     # --rm: Auto-remove container after stop
     docker run -i --rm `
