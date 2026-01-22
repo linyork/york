@@ -58,8 +58,12 @@ async def test_mcp_server_registry():
     
     # 根據報錯修正方法名稱: list_tools -> get_tools
     # 取得 mcp server 內所有已註冊的工具
-    registered_tools = mcp._tool_manager.get_tools()
-    registered_tool_names = [tool.name for tool in registered_tools]
+    # get_tools 是一個 async 函數，必須 await
+    # 注意：FastMCP 的 get_tools 回傳的是 Dict[str, Tool]，key 為工具名稱
+    registered_tools = await mcp._tool_manager.get_tools()
+    
+    # 由於 registered_tools 是 dict，直接取 keys 即可
+    registered_tool_names = list(registered_tools.keys())
     
     expected_names = [
         "save_knowledge_tool",

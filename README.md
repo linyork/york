@@ -41,7 +41,9 @@ York 是一個專為 AI Agent 設計的「專案知識管理大腦」。它透�
 
 將安裝精靈生成的配置加入您的 Claude 設定檔：
 
-macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+#### macOS/Linux
+
+設定檔位置: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 ```json
 {
@@ -53,9 +55,70 @@ macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 }
 ```
 
+#### Windows (Antigravity)
+
+設定檔位置: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
+
+```json
+{
+  "mcpServers": {
+    "york": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "/您的/絕對路徑/到/york/start.ps1"
+      ]
+    }
+  }
+}
+```
+
+> **注意**: Windows 使用者需使用 `start.ps1` (PowerShell 腳本) 而非 `start.sh`。請將路徑替換為您的實際安裝位置。
+
 ### 3. 重啟 Claude
 
 重啟 Antigravity 或是 Claude Desktop 後，您應該能看到 🛠️ 圖示中出現 York 的工具。
+
+---
+
+## ☁️ Windows 雲端同步架構 (Auto-Sync)
+
+Antigravity 版本 (Windows PowerShell) 內建了強大的**「本地優先 + 雲端備份」**機制，解決了 Docker 無法直接掛載 Google Drive 的問題。
+
+### ✨ 核心功能
+1.  **🚀 啟動即拉取 (Pull)**: 每次啟動時，強制從 Google Drive 拉取最新資料到本地，確保資料一致。
+2.  **👀 即時監控 (Watch)**: 運行期間，背景服務即時監控本地變更，秒級同步至雲端。
+3.  **🛡️ 關閉即備份 (Backup)**: 程式結束時執行最後一次完整備份。
+
+### ⚙️ 設定方式
+在 `.env` 中設定兩個變數：
+
+```bash
+# 1. 本地路徑 (Docker 實際掛載，速度快)
+YORK_KNOWLEDGE_ROOT=./york-knowledge
+
+# 2. 雲端路徑 (自動備份目的地)
+REMOTE_KNOWLEDGE_ROOT=G:\我的雲端硬碟\knowledge
+```
+
+### 🔄 工作流程
+```mermaid
+graph TD
+    Start[啟動 York] --> Pull[📥 強制拉取雲端資料]
+    Pull --> Watch[👀 啟動背景監控]
+    Watch --> Docker[🐳 啟動 Docker 容器]
+    
+    User[使用者操作] -->|新增/修改| Local[💾 本地硬碟]
+    Local -->|觸發事件| Watch
+    Watch -->|即時推送| Cloud[☁️ Google Drive]
+    
+    Docker --> Stop[程式關閉]
+    Stop --> Final[📤 執行最終備份]
+    Final --> Cloud
+```
 
 ---
 
@@ -120,11 +183,49 @@ york/
 
 ## 🔧 維運工具
 
-York 在根目錄提供了一系列腳本方便維護：
+York 在根目錄提供了一系列腳本方便維護。每個工具都有 Shell 和 PowerShell 兩個版本：
 
-*   **`./inspect_db.sh`**: 查看向量資料庫內容 (CLI 介面)。
-*   **`./lancedb.sh`**: 備份或重置資料庫。
-*   **`./migrate_knowledge.sh`**: 強制重建所有專案的知識索引。
+### 📊 知識庫儀表板
+啟動視覺化介面，瀏覽和管理知識庫內容。
+
+- **macOS/Linux**: `./dashboard.sh`
+- **Windows**: `.\dashboard.ps1`
+- 訪問: `http://localhost:8501`
+
+### 🔍 資料庫檢查工具
+查看向量資料庫的詳細內容與統計資訊。
+
+- **macOS/Linux**: `./inspect_db.sh`
+- **Windows**: `.\inspect_db.ps1`
+
+### 🔄 知識庫重建索引
+強制重新掃描並重建所有專案的向量索引。
+
+- **macOS/Linux**: `./migrate_knowledge.sh`
+- **Windows**: `.\migrate_knowledge.ps1`
+
+### 💾 資料庫管理工具
+備份或重置 LanceDB 向量資料庫。
+
+- **macOS/Linux**: `./ops_db.sh [backup|reset|help]`
+- **Windows**: `.\ops_db.ps1 [backup|reset|help]`
+
+使用範例：
+```bash
+# macOS/Linux
+./ops_db.sh backup    # 備份資料庫
+./ops_db.sh reset     # 重置資料庫 (會先自動備份)
+
+# Windows
+.\ops_db.ps1 backup   # 備份資料庫
+.\ops_db.ps1 reset    # 重置資料庫 (會先自動備份)
+```
+
+### 🧪 測試執行工具
+在本機環境執行完整的測試套件 (需要安裝 `uv`)。
+
+- **macOS/Linux**: `./test.sh`
+- **Windows**: `.\test.ps1`
 
 ---
 
@@ -132,9 +233,22 @@ York 在根目錄提供了一系列腳本方便維護：
 
 若您想在本機直接開發 (不使用 Docker)：
 
-1.  安裝 `uv`: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-2.  安裝依賴: `uv sync --all-extras`
-3.  執行測試: `uv run pytest`
-4.  啟動 Server: `uv run python -m src`
+### 安裝 uv
+
+**macOS/Linux**:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell)**:
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+### 開發步驟
+
+1.  安裝依賴: `uv sync --all-extras`
+2.  執行測試: `uv run pytest`
+3.  啟動 Server: `uv run python -m src`
 
 ---
