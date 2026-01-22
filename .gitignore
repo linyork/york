@@ -1,0 +1,115 @@
+# ==========================================
+# Python 相關
+# ==========================================
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyo
+*.pyd
+build/
+dist/
+wheels/
+*.egg-info
+*.egg
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# ==========================================
+# York 專案運行時產出
+# ==========================================
+# 向量資料庫檔案（LanceDB）
+lancedb/
+*.lance
+york-knowledge/
+
+# 知識庫資料（依據 .env 配置的路徑）
+# 如果 YORK_KNOWLEDGE_ROOT 指向專案內，這會被排除
+
+# 環境變數檔案（包含敏感資訊）
+.env
+.env.local
+.env.*.local
+
+# 日誌檔案
+*.log
+logs/
+
+# ==========================================
+# 測試與覆蓋率
+# ==========================================
+test-knowledge/
+.tox/
+.nox/
+
+# ==========================================
+# Docker 相關
+# ==========================================
+# 不排除 Dockerfile 和 docker-compose.yml
+# 但排除運行時產生的檔案
+.docker-volumes/
+docker-compose.override.yml
+
+# ==========================================
+# IDE 與編輯器
+# ==========================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# OS 相關
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ==========================================
+# 其他
+# ==========================================
+# 暫存檔案
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# 備份檔案
+*.bak
+*.backup
