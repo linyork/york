@@ -119,19 +119,38 @@ async def detect_project_structure(project_path: str, project_name: str) -> str:
     # 若在 Docker 內執行，外部傳入的路徑可能無法直接存取
     # 這裡假設使用者傳入的是 Docker 內的路徑，或者是標準專案路徑
     
-    # 簡單的路徑檢查
-    target_path = Path(project_path)
-    
-    # 如果路徑不存在，嘗試加上 PROJECTS_DIR 前綴 (如果傳入的是相對路徑)
-    if not target_path.exists():
-        from src.config import config
-        target_path = Path(config.projects_root) / project_name
-        if not target_path.exists():
-             # 再試試看是否直接傳了專案名
-             target_path = Path(config.projects_root) / project_path
-    
-    if not target_path.exists():
-        return f"錯誤：找不到路徑 {project_path} (也找不到 {target_path})"
+    # 安全地取得專案根目錄
+    from src.config import config
+    try:
+        projects_root = Path(config.projects_root).resolve()
+    except Exception as e:
+        Logger.error("Structure", f"無法解析專案根目錄: {e}")
+        return f"錯誤：伺服器配置錯誤，無法解析專案根目錄。"
+
+    # 建立可能的候選路徑列表，所有路徑都必須在 projects_root 內
+    # 1. 優先考慮將 project_path 視為絕對路徑 (如果是絕對路徑)
+    # 2. 嘗試將 project_path 視為相對於 projects_root 的路徑
+    # 3. 嘗試將 project_name 視為相對於 projects_root 的路徑
+    candidates = [
+        Path(project_path),
+        projects_root / project_path,
+        projects_root / project_name
+    ]
+
+    target_path = None
+    for candidate in candidates:
+        try:
+            # 必須先解析路徑，處理 .. 或符號連結
+            resolved = candidate.resolve()
+            # 安全檢查：確保路徑在 projects_root 內且確實存在
+            if resolved.is_relative_to(projects_root) and resolved.exists():
+                target_path = resolved
+                break
+        except (OSError, ValueError):
+            continue
+
+    if not target_path:
+        return f"錯誤：找不到專案路徑 {project_path}，或該路徑不位於允許的目錄內。"
         
     framework = FrameworkDetector.detect(str(target_path))
     
