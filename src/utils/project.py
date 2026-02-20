@@ -94,7 +94,7 @@ def sanitize_filename(name: str) -> str:
         安全的檔案名稱
     """
     # 移除或替換不安全的字元
-    unsafe_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    unsafe_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', "'"]
     safe_name = name
     
     for char in unsafe_chars:
