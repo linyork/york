@@ -63,7 +63,7 @@ class MarkdownSplitter:
             
             if header_match:
                 # 遇到新標題，先儲存前一個 chunk
-                if current_content and len(current_content) >= KNOWLEDGE_CONSTANTS.MIN_CHUNK_LINES:
+                if current_content:
                     chunk = self._create_chunk(
                         header_stack.copy(),
                         current_content,
@@ -94,7 +94,7 @@ class MarkdownSplitter:
                 current_content.append(line)
         
         # 處理最後一個 chunk
-        if current_content and len(current_content) >= KNOWLEDGE_CONSTANTS.MIN_CHUNK_LINES:
+        if current_content:
             chunk = self._create_chunk(
                 header_stack,
                 current_content,
