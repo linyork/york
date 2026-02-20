@@ -3,9 +3,9 @@
 提供專案相關的工具函式
 """
 
-import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+
 from src.config import config
 from src.utils.logger import Logger
 
@@ -83,12 +83,13 @@ def validate_project_access(project_name: str) -> bool:
     return project_name in config.allowed_projects
 
 
-def sanitize_filename(name: str) -> str:
+def sanitize_filename(name: str, extension: Optional[str] = None) -> str:
     """
     清理檔案名稱，移除不安全的字元
     
     Args:
         name: 原始檔案名稱
+        extension: 選填，確保檔案具有此副檔名
         
     Returns:
         安全的檔案名稱
@@ -107,4 +108,11 @@ def sanitize_filename(name: str) -> str:
     if not safe_name:
         safe_name = "unnamed"
     
+    # 處理副檔名
+    if extension:
+        if not extension.startswith('.'):
+            extension = f".{extension}"
+        if not safe_name.endswith(extension):
+            safe_name = f"{safe_name}{extension}"
+
     return safe_name

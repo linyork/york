@@ -3,20 +3,19 @@
 提供知識文件的 CRUD 操作
 """
 
-import frontmatter
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from src.config import config
+import frontmatter
+
 from src.constants import KNOWLEDGE_CONSTANTS
 from src.models.knowledge import KnowledgeFile, KnowledgeMetadata
 from src.utils.logger import Logger
 from src.utils.project import (
-    get_project_path,
     ensure_project_dir,
+    get_project_path,
+    sanitize_filename,
     validate_project_access,
-    sanitize_filename
 )
 
 
@@ -48,9 +47,7 @@ async def save_knowledge(
     project_path = ensure_project_dir(project_name)
     
     # 清理檔案名稱
-    safe_name = sanitize_filename(name)
-    if not safe_name.endswith('.md'):
-        safe_name += '.md'
+    safe_name = sanitize_filename(name, extension='.md')
     
     file_path = project_path / safe_name
     
@@ -100,9 +97,7 @@ async def read_knowledge(
     project_path = get_project_path(project_name)
     
     # 清理檔案名稱
-    safe_name = sanitize_filename(name)
-    if not safe_name.endswith('.md'):
-        safe_name += '.md'
+    safe_name = sanitize_filename(name, extension='.md')
     
     file_path = project_path / safe_name
     
@@ -220,9 +215,7 @@ async def delete_knowledge(
     project_path = get_project_path(project_name)
     
     # 清理檔案名稱
-    safe_name = sanitize_filename(name)
-    if not safe_name.endswith('.md'):
-        safe_name += '.md'
+    safe_name = sanitize_filename(name, extension='.md')
     
     file_path = project_path / safe_name
     
