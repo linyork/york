@@ -10,6 +10,7 @@ from src.services.vector import VectorStore
 from src.utils.logger import Logger
 from src.utils.project import get_project_path
 from src.knowledge.core import list_knowledge, read_knowledge
+from src.utils.security import escape_sql_string
 
 
 @dataclass
@@ -106,17 +107,22 @@ async def vector_search(
     await store.initialize()
     
     # 建構過濾條件
-    filter_expr = f"projectName = '{project_name}'"
+    safe_project_name = escape_sql_string(project_name)
+    filter_expr = f"projectName = '{safe_project_name}'"
     
     if options:
         if options.get('framework'):
-            filter_expr += f" AND framework = '{options['framework']}'"
+            safe_framework = escape_sql_string(options['framework'])
+            filter_expr += f" AND framework = '{safe_framework}'"
         if options.get('frameworkLayer'):
-            filter_expr += f" AND frameworkLayer = '{options['frameworkLayer']}'"
+            safe_framework_layer = escape_sql_string(options['frameworkLayer'])
+            filter_expr += f" AND frameworkLayer = '{safe_framework_layer}'"
         if options.get('codeType'):
-            filter_expr += f" AND codeType = '{options['codeType']}'"
+            safe_code_type = escape_sql_string(options['codeType'])
+            filter_expr += f" AND codeType = '{safe_code_type}'"
         if options.get('symbolName'):
-            filter_expr += f" AND symbolName = '{options['symbolName']}'"
+            safe_symbol_name = escape_sql_string(options['symbolName'])
+            filter_expr += f" AND symbolName = '{safe_symbol_name}'"
     
     # 執行向量搜尋
     docs = await store.search(

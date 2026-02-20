@@ -21,6 +21,7 @@ from src.config import config
 from src.constants import VECTOR_DB_CONSTANTS
 from src.models.vector import VectorDoc, CacheStats, DatabaseStats
 from src.utils.logger import Logger
+from src.utils.security import escape_sql_string
 
 
 class VectorStore:
@@ -265,9 +266,11 @@ class VectorStore:
             Logger.warning("VectorStore", "資料表不存在，無法刪除")
             return
         
+        safe_parent_id = escape_sql_string(parent_id)
+
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: table.delete(f"parentId = '{parent_id}'")
+            lambda: table.delete(f"parentId = '{safe_parent_id}'")
         )
         
         Logger.debug("VectorStore", f"已刪除 parent_id={parent_id} 的所有文件")
@@ -285,9 +288,11 @@ class VectorStore:
             Logger.warning("VectorStore", "資料表不存在，無法刪除")
             return
         
+        safe_id = escape_sql_string(doc_id)
+
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: table.delete(f"id = '{doc_id}'")
+            lambda: table.delete(f"id = '{safe_id}'")
         )
         
         Logger.debug("VectorStore", f"已刪除文件: {doc_id}")
