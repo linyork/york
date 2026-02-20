@@ -11,7 +11,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from functools import lru_cache
 
 import lancedb
@@ -139,44 +139,61 @@ class VectorStore:
         embedding = self._embedder.encode(text, convert_to_tensor=False)
         return tuple(embedding.tolist())
     
-    async def create_embedding(self, text: str) -> List[float]:
+    async def create_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """
         建立文字的向量嵌入
+        支援單一字串或字串列表（批次處理）
         使用 LRU 快取減少重複計算
         
         Args:
-            text: 要嵌入的文字
+            text: 要嵌入的文字或文字列表
             
         Returns:
-            向量嵌入陣列
+            單一向量或向量陣列
         """
         # 確保 Embedder 已載入
         await self.get_embedder()
         
-        # 檢查快取（在呼叫前）
-        cache_info_before = self._create_embedding_sync.cache_info()
-        
-        # 執行嵌入（會自動使用快取）
         loop = asyncio.get_event_loop()
-        embedding_tuple = await loop.run_in_executor(
-            None,
-            self._create_embedding_sync,
-            text
-        )
         
-        # 更新快取統計（檢查呼叫後的快取情況）
-        cache_info_after = self._create_embedding_sync.cache_info()
-        
-        # 如果 hits 增加，代表這次呼叫命中快取
-        if cache_info_after.hits > cache_info_before.hits:
-            self._cache_stats.hits += 1
+        if isinstance(text, str):
+            # 檢查快取（在呼叫前）
+            cache_info_before = self._create_embedding_sync.cache_info()
+
+            # 執行嵌入（會自動使用快取）
+            embedding_tuple = await loop.run_in_executor(
+                None,
+                self._create_embedding_sync,
+                text
+            )
+
+            # 更新快取統計
+            cache_info_after = self._create_embedding_sync.cache_info()
+            if cache_info_after.hits > cache_info_before.hits:
+                self._cache_stats.hits += 1
+            else:
+                self._cache_stats.misses += 1
+
+            self._cache_stats.size = cache_info_after.currsize
+            self._cache_stats.max_size = cache_info_after.maxsize
+
+            return list(embedding_tuple)
         else:
-            self._cache_stats.misses += 1
-        
-        self._cache_stats.size = cache_info_after.currsize
-        self._cache_stats.max_size = cache_info_after.maxsize
-        
-        return list(embedding_tuple)
+            # 批次處理
+            if not text:
+                return []
+
+            # 這裡我們直接使用模型進行批次編碼，以獲得最佳效能
+            # 雖然這會跳過快取，但在大量 chunks 同步時，批次編碼的效能增益遠大於個別快取檢查
+            embeddings = await loop.run_in_executor(
+                None,
+                lambda: self._embedder.encode(text, convert_to_tensor=False)
+            )
+
+            # 更新統計（將批次處理視為 misses）
+            self._cache_stats.misses += len(text)
+
+            return embeddings.tolist()
     
     async def upsert(self, doc: VectorDoc, retry_count: int = 0) -> None:
         """
@@ -186,15 +203,32 @@ class VectorStore:
             doc: 要插入的文件
             retry_count: 遞迴重試計數器（內部使用）
         """
+        await self.upsert_batch([doc], retry_count)
+
+    async def upsert_batch(self, docs: List[VectorDoc], retry_count: int = 0) -> None:
+        """
+        批次插入或更新向量文件
+
+        Args:
+            docs: 要插入的文件列表
+            retry_count: 遞迴重試計數器（內部使用）
+        """
+        if not docs:
+            return
+
         await self.initialize()
         
-        # 建立向量嵌入
-        if doc.vector is None:
-            doc.vector = await self.create_embedding(doc.content)
+        # 找出需要建立向量嵌入的文件
+        docs_to_embed = [doc for doc in docs if doc.vector is None]
+        if docs_to_embed:
+            contents = [doc.content for doc in docs_to_embed]
+            embeddings = await self.create_embedding(contents)
+            for doc, embedding in zip(docs_to_embed, embeddings):
+                doc.vector = embedding
         
         # 準備資料
-        # 使用 by_alias=True 確保輸出 camelCase 欄位名稱 (如 parentId)，與資料庫相容
-        data = doc.model_dump(by_alias=True)
+        # 使用 by_alias=True 確保輸出 camelCase 欄位名稱，與資料庫相容
+        data_list = [doc.model_dump(by_alias=True) for doc in docs]
         
         try:
             table = await self.get_table()
@@ -203,7 +237,6 @@ class VectorStore:
                 # 資料表不存在，建立新表
                 Logger.info("VectorStore", f"建立新資料表: {VECTOR_DB_CONSTANTS.TABLE_NAME}")
                 
-                # 定義 Schema 以避免自動推斷導致的 PyArrow/LanceDB 相容性問題
                 import pyarrow as pa
                 
                 schema = pa.schema([
@@ -229,7 +262,7 @@ class VectorStore:
                     None,
                     lambda: self._db.create_table(
                         VECTOR_DB_CONSTANTS.TABLE_NAME,
-                        data=[data],
+                        data=data_list,
                         schema=schema
                     )
                 )
@@ -239,17 +272,17 @@ class VectorStore:
                 # 資料表存在，新增資料
                 await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: table.add([data])
+                    lambda: table.add(data_list)
                 )
                 
-                Logger.debug("VectorStore", f"文件已插入: {doc.id}")
+                Logger.debug("VectorStore", f"已批次插入 {len(docs)} 個文件")
         
         except Exception as e:
             if retry_count < VECTOR_DB_CONSTANTS.MAX_SCHEMA_RETRIES:
-                Logger.warning("VectorStore", f"插入失敗，重試中... ({retry_count + 1}/{VECTOR_DB_CONSTANTS.MAX_SCHEMA_RETRIES})")
-                await self.upsert(doc, retry_count + 1)
+                Logger.warning("VectorStore", f"批次插入失敗，重試中... ({retry_count + 1}/{VECTOR_DB_CONSTANTS.MAX_SCHEMA_RETRIES})")
+                await self.upsert_batch(docs, retry_count + 1)
             else:
-                Logger.error("VectorStore", f"插入文件失敗: {e}")
+                Logger.error("VectorStore", f"批次插入文件失敗: {e}")
                 raise
     
     async def delete_by_parent_id(self, parent_id: str) -> None:

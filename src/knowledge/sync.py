@@ -61,7 +61,8 @@ async def sync_to_vector_store(
     related_files = meta.get('related_files', []) or meta.get('relatedFiles', [])
     context_description = meta.get('context_description') or meta.get('contextDescription')
     
-    # 逐一插入 chunks
+    # 批次準備所有 chunks 文件
+    docs = []
     for chunk in chunks:
         doc = VectorDoc(
             id=chunk.id,
@@ -78,8 +79,10 @@ async def sync_to_vector_store(
             related_files=related_files,
             context_description=context_description
         )
-        
-        await store.upsert(doc)
+        docs.append(doc)
+
+    # 批次插入
+    await store.upsert_batch(docs)
     
     Logger.success("Sync", f"同步完成: {safe_name} ({len(chunks)} chunks)")
 
