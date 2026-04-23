@@ -3,8 +3,9 @@
 負責知識文件與向量資料庫的同步操作
 """
 
+import hashlib
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from src.config import config
 from src.constants import KNOWLEDGE_CONSTANTS
@@ -16,12 +17,17 @@ from src.utils.project import get_project_path, list_projects
 from src.knowledge.core import read_knowledge, list_knowledge
 
 
+def _get_meta(meta: Dict[str, Any], snake_key: str, camel_key: str) -> Optional[Any]:
+    """snake_case 優先，camelCase 作為向後相容 fallback"""
+    return meta.get(snake_key) or meta.get(camel_key)
+
+
 async def sync_to_vector_store(
     project_name: str,
     safe_name: str,
     content: str,
-    tags: list[str],
-    metadata: Dict[str, Any] = None
+    tags: List[str],
+    metadata: Optional[Dict[str, Any]] = None
 ) -> None:
     """
     同步知識文件至向量資料庫
@@ -39,7 +45,10 @@ async def sync_to_vector_store(
     
     # 使用檔案名稱作為 parent_id
     parent_id = f"{project_name}:{safe_name}"
-    
+
+    # 計算本次同步的內容 hash（MD5 前 16 碼，供 stale 偵測使用）
+    content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
+
     # 先刪除該檔案的舊 chunks
     await store.delete_by_parent_id(parent_id)
     
@@ -52,14 +61,14 @@ async def sync_to_vector_store(
     
     Logger.info("Sync", f"正在同步 {len(chunks)} 個 chunks: {safe_name}")
     
-    # 準備 metadata
+    # 準備 metadata（snake_case 優先，camelCase 向後相容）
     meta = metadata or {}
-    framework = meta.get('framework')
-    framework_layer = meta.get('framework_layer') or meta.get('frameworkLayer')
-    code_type = meta.get('code_type') or meta.get('codeType')
-    symbol_name = meta.get('symbol_name') or meta.get('symbolName')
-    related_files = meta.get('related_files', []) or meta.get('relatedFiles', [])
-    context_description = meta.get('context_description') or meta.get('contextDescription')
+    framework = _get_meta(meta, 'framework', 'framework')
+    framework_layer = _get_meta(meta, 'framework_layer', 'frameworkLayer')
+    code_type = _get_meta(meta, 'code_type', 'codeType')
+    symbol_name = _get_meta(meta, 'symbol_name', 'symbolName')
+    related_files = meta.get('related_files') or meta.get('relatedFiles') or []
+    context_description = _get_meta(meta, 'context_description', 'contextDescription')
     
     # 批次準備所有 chunks 文件
     docs = []
@@ -77,7 +86,8 @@ async def sync_to_vector_store(
             header_path=chunk.header_path,
             preview=chunk.preview,
             related_files=related_files,
-            context_description=context_description
+            context_description=context_description,
+            content_hash=content_hash,
         )
         docs.append(doc)
 

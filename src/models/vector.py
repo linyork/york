@@ -24,6 +24,10 @@ class VectorDoc(BaseModel):
     # Small-to-Big Retrieval 相關
     header_path: Optional[str] = Field(None, description="Markdown 標題路徑", alias="headerPath")
     preview: Optional[str] = Field(None, description="內容預覽")
+
+    # Stale 偵測：儲存同步當下的 MD 檔案內容 hash（MD5 前 16 碼）
+    # 搜尋時比對磁碟上目前的 hash，不符即代表檔案在 MCP 外被修改過
+    content_hash: Optional[str] = Field(None, description="檔案內容 hash（stale 偵測用）", alias="contentHash")
     
     # 向量嵌入（不會儲存在文件中，僅用於查詢）
     vector: Optional[List[float]] = Field(None, description="向量嵌入")

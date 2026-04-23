@@ -3,7 +3,9 @@
 提供知識文件的 CRUD 操作
 """
 
+import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import frontmatter
@@ -11,6 +13,11 @@ import frontmatter
 from src.constants import KNOWLEDGE_CONSTANTS
 from src.models.knowledge import KnowledgeFile, KnowledgeMetadata
 from src.utils.logger import Logger
+
+
+def _get_meta(d: dict, snake_key: str, camel_key: str, default=None):
+    """snake_case 優先，camelCase 作為向後相容 fallback"""
+    return d.get(snake_key) or d.get(camel_key) or default
 from src.utils.project import (
     ensure_project_dir,
     get_project_path,
@@ -59,9 +66,9 @@ async def save_knowledge(
     # 建立 frontmatter 文件
     post = frontmatter.Post(content, **meta)
     
-    # 寫入檔案
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(frontmatter.dumps(post))
+    # 寫入檔案（asyncio.to_thread 避免阻塞 event loop）
+    content_str = frontmatter.dumps(post)
+    await asyncio.to_thread(file_path.write_text, content_str, 'utf-8')
     
     Logger.success("Knowledge", f"知識文件已儲存: {project_name}/{safe_name}")
     
@@ -104,19 +111,22 @@ async def read_knowledge(
     if not file_path.exists():
         raise FileNotFoundError(f"知識文件不存在: {project_name}/{safe_name}")
     
-    # 讀取檔案
-    with open(file_path, 'r', encoding='utf-8') as f:
-        post = frontmatter.load(f)
+    # 讀取檔案（asyncio.to_thread 避免阻塞 event loop）
+    def _load() -> frontmatter.Post:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return frontmatter.load(f)
+    post = await asyncio.to_thread(_load)
     
-    # 建立 Metadata
+    # 建立 Metadata（snake_case 優先，camelCase 向後相容）
+    m = post.metadata
     metadata = KnowledgeMetadata(
-        tags=post.metadata.get('tags', []),
-        framework=post.metadata.get('framework'),
-        framework_layer=post.metadata.get('framework_layer') or post.metadata.get('frameworkLayer'),
-        code_type=post.metadata.get('code_type') or post.metadata.get('codeType'),
-        symbol_name=post.metadata.get('symbol_name') or post.metadata.get('symbolName'),
-        related_files=post.metadata.get('related_files', []) or post.metadata.get('relatedFiles', []),
-        context_description=post.metadata.get('context_description') or post.metadata.get('contextDescription')
+        tags=m.get('tags', []),
+        framework=m.get('framework'),
+        framework_layer=_get_meta(m, 'framework_layer', 'frameworkLayer'),
+        code_type=_get_meta(m, 'code_type', 'codeType'),
+        symbol_name=_get_meta(m, 'symbol_name', 'symbolName'),
+        related_files=_get_meta(m, 'related_files', 'relatedFiles', default=[]),
+        context_description=_get_meta(m, 'context_description', 'contextDescription')
     )
     
     Logger.debug("Knowledge", f"讀取知識文件: {project_name}/{safe_name}")
@@ -167,8 +177,10 @@ async def list_knowledge(
     
     for file_path in md_files:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                post = frontmatter.load(f)
+            def _load_file() -> frontmatter.Post:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return frontmatter.load(f)
+            post = await asyncio.to_thread(_load_file)
             
             file_tags = post.metadata.get('tags', [])
             
@@ -219,6 +231,17 @@ async def delete_knowledge(
     
     file_path = project_path / safe_name
     
+    # === 安全防護：確保刪除目標在 YORK_KNOWLEDGE_ROOT 內 ===
+    knowledge_root = Path(project_path).parent.resolve()
+    try:
+        file_path.resolve().relative_to(knowledge_root)
+    except ValueError:
+        raise PermissionError(f"安全防護：禁止刪除知識庫範圍外的檔案: {file_path}")
+    
+    # === 防護：只允許刪除 .md 檔案 ===
+    if file_path.suffix.lower() != '.md':
+        raise PermissionError(f"安全防護：只允許刪除 .md 知識文件，拒絕刪除: {file_path.name}")
+    
     if not file_path.exists():
         raise FileNotFoundError(f"知識文件不存在: {project_name}/{safe_name}")
     
@@ -249,8 +272,7 @@ async def get_project_knowledge(project_name: str) -> str:
         Logger.warning("Knowledge", f"專案知識彙整檔案不存在: {project_name}")
         return f"# {project_name}\n\n尚無知識文件。"
     
-    with open(knowledge_file, 'r', encoding='utf-8') as f:
-        content = f.read()
+    content = await asyncio.to_thread(knowledge_file.read_text, 'utf-8')
     
     Logger.debug("Knowledge", f"讀取專案知識彙整: {project_name}")
     

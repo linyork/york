@@ -82,9 +82,9 @@ class AsyncFileContext:
         self.file = None
 
     async def __aenter__(self):
-        # 這裡我們其實是同步打開，但在讀寫時用線程
-        # 在高併發場景下建議用 aiofiles，但這裡為了減少依賴先這樣做
-        self.file = open(self.path, self.mode, encoding="utf-8")
+        self.file = await asyncio.to_thread(
+            lambda: open(self.path, self.mode, encoding="utf-8")
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

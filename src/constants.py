@@ -50,6 +50,19 @@ class KnowledgeConstants:
     # Chunk 切分的最小行數
     MIN_CHUNK_LINES = 3
 
+    # 單一 chunk 最大字元數
+    # paraphrase-multilingual-MiniLM-L12-v2 上限 512 tokens
+    # 中文約 1 字 = 1.5 tokens，保守取 350 字 ≈ 525 tokens（含標題與空白行）
+    MAX_CHUNK_CHARS = 500
+
+    # 超大段落（無法從段落邊界拆開時）的句子切分長度
+    MAX_SENTENCE_CHARS = 150
+
+    # size-based 二次切分時，相鄰 sub-chunk 的 overlap 字元數
+    # 取前一個 sub-chunk 的尾部加入下一個的開頭，避免邊界語意損失
+    # 限定在 _subdivide 產生的 sub-chunks，header-level split 不加 overlap
+    CHUNK_OVERLAP_CHARS = 100
+
 
 # === 程式碼分析常量 ===
 

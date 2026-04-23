@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 
 from src.config import config
 from src.constants import MCP_CONSTANTS
+
 from src.knowledge.core import (
     save_knowledge,
     read_knowledge,
@@ -20,10 +21,11 @@ from src.knowledge.sync import (
     delete_from_vector_store,
     reindex_knowledge
 )
-from src.knowledge.search import search_knowledge
+from src.knowledge.search import search_knowledge, expand_context
 from src.services.vector import VectorStore
 from src.utils.logger import Logger
 from src.utils.project import list_projects
+from src.utils.security import validate_metadata_field
 from src.structure import (
     get_project_structure, 
     save_project_structure, 
@@ -68,21 +70,26 @@ async def save_knowledge_tool(
         包含檔案路徑的字典
     """
     Logger.info("MCP", f"save_knowledge: {project_name}/{name}")
-    
-    # 準備 metadata
+
+    # 驗證並清理 metadata 欄位
     metadata = {}
-    if framework:
-        metadata['framework'] = framework
-    if framework_layer:
-        metadata['framework_layer'] = framework_layer
-    if code_type:
-        metadata['code_type'] = code_type
-    if symbol_name:
-        metadata['symbol_name'] = symbol_name
+    fw = validate_metadata_field(framework, 'framework')
+    if fw:
+        metadata['framework'] = fw
+    fl = validate_metadata_field(framework_layer, 'framework_layer')
+    if fl:
+        metadata['framework_layer'] = fl
+    ct = validate_metadata_field(code_type, 'code_type')
+    if ct:
+        metadata['code_type'] = ct
+    sn = validate_metadata_field(symbol_name, 'symbol_name')
+    if sn:
+        metadata['symbol_name'] = sn
+    cd = validate_metadata_field(context_description, 'context_description', max_length=2048)
+    if cd:
+        metadata['context_description'] = cd
     if related_files:
-        metadata['related_files'] = related_files
-    if context_description:
-        metadata['context_description'] = context_description
+        metadata['related_files'] = [f for f in related_files if isinstance(f, str)][:50]
     
     # 儲存知識
     result = await save_knowledge(
@@ -191,27 +198,30 @@ async def delete_knowledge_tool(
 async def search_knowledge_tool(
     project_name: str,
     query: str,
+    query_variants: Optional[List[str]] = None,
     framework: Optional[str] = None,
     framework_layer: Optional[str] = None,
     code_type: Optional[str] = None,
     symbol_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    搜尋知識文件內容（混合檢索：關鍵字 + 語意搜尋）
-    
+    搜尋知識文件內容（三路混合檢索：關鍵字 + 向量語意 + 全文內容）
+
     Args:
-        project_name: 專案名稱
-        query: 搜尋查詢
-        framework: 框架過濾（選填）
+        project_name:    專案名稱
+        query:           主要搜尋查詢（任何語言）
+        query_variants:  同義查詢的其他語言版本，例如 ["nearby area search", "近郊地區搜尋"]
+                         提供越多語言版本，跨語言命中率越高
+        framework:       框架過濾（選填）
         framework_layer: 框架層級過濾（選填）
-        code_type: 程式碼類型過濾（選填）
-        symbol_name: 符號名稱過濾（選填）
-    
+        code_type:       程式碼類型過濾（選填）
+        symbol_name:     符號名稱過濾（選填）
+
     Returns:
         搜尋結果與使用指引
     """
-    Logger.info("MCP", f"search_knowledge: {project_name} - {query}")
-    
+    Logger.info("MCP", f"search_knowledge: {project_name} - {query} (variants={len(query_variants or [])})")
+
     # 準備過濾選項
     options = {}
     if framework:
@@ -222,23 +232,57 @@ async def search_knowledge_tool(
         options['codeType'] = code_type
     if symbol_name:
         options['symbolName'] = symbol_name
-    
-    # 執行搜尋
-    results = await search_knowledge(project_name, query, options if options else None)
-    
+
+    # 執行三路搜尋
+    results = await search_knowledge(
+        project_name,
+        query,
+        options if options else None,
+        query_variants,
+    )
+
     # 準備使用指引
     instructions = """【AI 知識處理守則】
-1. **解讀分數 (Interpret Scores)**：Score > 0.03 代表 [關鍵字+向量] 雙重命中，可信度極高；Score < 0.02 代表僅單邊命中，需謹慎採用。
-2. **視為線索 (Treat as Clues)**：搜尋結果僅代表「過去的紀錄」，非絕對真理。
-3. **強制驗證 (Verify Implementation)**：判斷邏輯時，必須調閱實際程式碼 (`view_file`) 確認現況。
-4. **衝突仲裁 (Conflict Resolution)**：當 [程式碼] 與 [知識庫] 衝突時，**絕對以程式碼為準**，並標記文件過時。
-5. **深度合成 (Synthesize)**：禁止單純摘要內容。必須將知識邏輯「內化」後，結合當前 User Request 與程式碼狀態，推導出具體解決方案。
-6. **知識閉環 (Close the Loop)**：若發現 [程式碼] 與 [知識庫] 不一致，請在回答最後**主動詢問**使用者：「偵測到知識庫文件與最新的程式碼邏輯不一致（或缺失），是否要我為您更新知識庫文件？」並準備好呼叫 `save_knowledge`。"""
-    
+1. **解讀分數 (Interpret Scores)**：Score > 0.03 代表多路同時命中（關鍵字 + 向量 + 全文），可信度極高；Score < 0.02 代表僅單路命中，需謹慎採用。verificationHints 中的來源標記（語意命中 / 全文命中 / 標籤）可供參考。
+2. **多語查詢 (Multi-Language Query)**：若 query 非繁體中文，或知識庫可能以多語記錄，**必須在 query_variants 中提供繁中、英文、日文版本**，三路搜尋才能全部發揮效果。例：query="認証ロジック", query_variants=["auth logic", "認證邏輯"]。
+3. **視為線索 (Treat as Clues)**：搜尋結果僅代表「過去的紀錄」，非絕對真理。
+4. **強制驗證 (Verify Implementation)**：判斷邏輯時，必須調閱實際程式碼 (`view_file`) 確認現況。
+5. **衝突仲裁 (Conflict Resolution)**：當 [程式碼] 與 [知識庫] 衝突時，**絕對以程式碼為準**，並標記文件過時。
+6. **深度合成 (Synthesize)**：禁止單純摘要內容。必須將知識邏輯「內化」後，結合當前 User Request 與程式碼狀態，推導出具體解決方案。
+7. **知識閉環 (Close the Loop)**：若發現 [程式碼] 與 [知識庫] 不一致，請在回答最後**主動詢問**使用者：「偵測到知識庫文件與最新的程式碼邏輯不一致（或缺失），是否要我為您更新知識庫文件？」並準備好呼叫 `save_knowledge`。
+8. **Stale 警告 (Stale Warning)**：若結果的 `stale: true`，代表該 .md 檔案已在 MCP 外被修改，向量索引可能過期。請提醒使用者執行 `reindex_knowledge` 更新索引，並在此之前降低該結果的可信度。"""
+
     return {
         "instructions": instructions,
         "results": results
     }
+
+
+@mcp.tool()
+async def expand_context_tool(
+    chunk_id: str,
+    parent_id: str
+) -> Dict[str, Any]:
+    """
+    擴展 Chunk 上下文（Small-to-Big Retrieval）
+
+    search_knowledge 命中某個 chunk 後，用此工具取得
+    該 chunk 的「前一段」與「後一段」完整內容，
+    補充搜尋結果的上下文脈絡。
+
+    Args:
+        chunk_id:  搜尋結果 context.chunk_id
+        parent_id: 搜尋結果 context.parent_id
+
+    Returns:
+        {
+          "before":  {id, header_path, content, preview} | null,
+          "current": {id, header_path, content, preview},
+          "after":   {id, header_path, content, preview} | null
+        }
+    """
+    Logger.info("MCP", f"expand_context: {chunk_id}")
+    return await expand_context(chunk_id, parent_id)
 
 
 @mcp.tool()

@@ -41,6 +41,9 @@ lancedb/
 *.lance
 york-knowledge/
 
+# 本機知識庫資料
+.data/
+
 # 知識庫資料（依據 .env 配置的路徑）
 # 如果 YORK_KNOWLEDGE_ROOT 指向專案內，這會被排除
 

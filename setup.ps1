@@ -101,9 +101,6 @@ PROJECTS_DIR=$($env:PROJECTS_DIR)
 # Knowledge base storage path (Local Docker mount)
 YORK_KNOWLEDGE_ROOT=$($env:YORK_KNOWLEDGE_ROOT)
 
-# Remote backup path (Optional - for Google Drive sync)
-# REMOTE_KNOWLEDGE_ROOT=G:\My Drive\knowledge
-
 ALLOWED_PROJECTS=
 LOG_LEVEL=info
 NODE_ENV=production
